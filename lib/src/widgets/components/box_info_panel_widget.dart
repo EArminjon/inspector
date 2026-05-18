@@ -280,9 +280,8 @@ class BoxInfoPanelWidget extends StatelessWidget {
   }
 
   bool _hasSelectedDecoratedInfo(RenderDecoratedBox? decorated) {
-    // Selection-first policy: never show decoration info when the selected box
-    // is a RenderParagraph (text selection should focus on text).
-    if (boxInfo.targetRenderBox is RenderParagraph) return false;
+    if (boxInfo.targetRenderBox is RenderParagraph ||
+        _findRenderEditable(boxInfo.targetRenderBox) != null) return false;
 
     if (decorated == null) return false;
 
@@ -346,13 +345,33 @@ class BoxInfoPanelWidget extends StatelessWidget {
     return styles;
   }
 
+  /// Walks up the render tree to find the nearest [RenderEditable] ancestor.
+  /// Use case: when inspecting a SelectableText, we need to find the RenderEditable to access the text and styles.
+  RenderEditable? _findRenderEditable(RenderBox current) {
+    if (current is RenderEditable) return current;
+    var parent = current.parent;
+    while (parent != null) {
+      if (parent is RenderEditable) return parent;
+      if (parent is RenderView) break;
+      parent = parent.parent;
+    }
+    return null;
+  }
+
   Widget _buildRenderParagraphInfo(BuildContext context) {
     final theme = Theme.of(context);
 
     final target = boxInfo.targetRenderBox;
-    if (target is! RenderParagraph) return const SizedBox.shrink();
 
-    final styles = _extractTextStyles(target.text);
+    InlineSpan? span;
+    if (target is RenderParagraph) {
+      span = target.text;
+    } else {
+      span = _findRenderEditable(target)?.text;
+    }
+    if (span == null) return const SizedBox.shrink();
+
+    final styles = _extractTextStyles(span);
 
     if (styles.isEmpty) return const SizedBox.shrink();
 
@@ -430,7 +449,9 @@ class BoxInfoPanelWidget extends StatelessWidget {
     final theme = Theme.of(context);
 
     final target = boxInfo.targetRenderBox;
-    final isSelectedParagraph = target is RenderParagraph;
+
+    final isSelectedParagraph =
+        target is RenderParagraph || _findRenderEditable(target) != null;
     final decoratedBox =
         !isSelectedParagraph ? _findDecoratedBoxForDisplay() : null;
     final hasSelectedDecoration =
