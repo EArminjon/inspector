@@ -4,13 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../inspector/box_info.dart';
 
-/// A widget that displays distance indicators between two boxes,
-/// similar to Figma's measurement tool.
-///
-/// * **Solid lines** start from the *center* of A's side and end at the
-///   projected point on B's corresponding side (same axis level).
-/// * **Dotted lines** start from an edge of component B and connect to the
-///   floating endpoint of a solid line, always perpendicular to the solid line.
 class DistanceIndicatorWidget extends StatelessWidget {
   const DistanceIndicatorWidget({
     required this.boxInfo,
@@ -25,33 +18,27 @@ class DistanceIndicatorWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final boxRect = boxInfo.targetRectShifted;
-    final comparedRect = comparedBoxInfo.targetRectShifted;
+    final a = boxInfo.targetRectShifted;
+    final b = comparedBoxInfo.targetRectShifted;
 
-    // Use positional containment, not size alone: a larger widget positioned
-    // beside the base widget should NOT be treated as a container.
-    final bool comparedInsideBox = boxRect.left <= comparedRect.left &&
-        boxRect.top <= comparedRect.top &&
-        boxRect.right >= comparedRect.right &&
-        boxRect.bottom >= comparedRect.bottom &&
-        boxRect != comparedRect;
+    final aContainsB = a.left <= b.left &&
+        a.top <= b.top &&
+        a.right >= b.right &&
+        a.bottom >= b.bottom &&
+        a != b;
 
-    final bool boxInsideCompared = comparedRect.left <= boxRect.left &&
-        comparedRect.top <= boxRect.top &&
-        comparedRect.right >= boxRect.right &&
-        comparedRect.bottom >= boxRect.bottom &&
-        boxRect != comparedRect;
+    final bContainsA = b.left <= a.left &&
+        b.top <= a.top &&
+        b.right >= a.right &&
+        b.bottom >= a.bottom &&
+        a != b;
 
     return Stack(
       children: [
-        _buildLeftDistance(
-            boxRect, comparedRect, comparedInsideBox, boxInsideCompared),
-        _buildRightDistance(
-            boxRect, comparedRect, comparedInsideBox, boxInsideCompared),
-        _buildTopDistance(
-            boxRect, comparedRect, comparedInsideBox, boxInsideCompared),
-        _buildBottomDistance(
-            boxRect, comparedRect, comparedInsideBox, boxInsideCompared),
+        _buildLeft(a, b, aContainsB, bContainsA),
+        _buildRight(a, b, aContainsB, bContainsA),
+        _buildTop(a, b, aContainsB, bContainsA),
+        _buildBottom(a, b, aContainsB, bContainsA),
       ],
     );
   }
@@ -60,453 +47,285 @@ class DistanceIndicatorWidget extends StatelessWidget {
   // Direction builders
   // ---------------------------------------------------------------------------
 
-  /// Builds a horizontal distance line on the LEFT side.
-  ///
-  /// Solid line runs at [boxRect.center.dy] (A's vertical centre).
-  /// A perpendicular dashed line is added when A's vertical centre is outside
-  /// B's vertical bounds, connecting B's nearest horizontal edge to the solid
-  /// line's endpoint.
-  Widget _buildLeftDistance(
-    Rect boxRect,
-    Rect comparedRect,
-    bool comparedInsideBox,
-    bool boxInsideCompared,
-  ) {
-    // --- Inside cases (Use Case 4) ---
-    if (comparedInsideBox) {
-      // A contains B: from A.left to B.left at B.center.dy
-      final distance = comparedRect.left - boxRect.left;
-      if (distance <= 0) return const SizedBox.shrink();
-      return CustomPaint(
-        painter: _DistanceLinePainter(
-          start: Offset(boxRect.left, comparedRect.center.dy),
-          end: Offset(comparedRect.left, comparedRect.center.dy),
-          distance: distance,
-          color: color,
-          direction: Axis.horizontal,
-        ),
-      );
+  Widget _buildLeft(Rect a, Rect b, bool aContainsB, bool bContainsA) {
+    // UC4 – A contains B
+    if (aContainsB) {
+      final d = b.left - a.left;
+      if (d <= 0) return const SizedBox.shrink();
+      return _solid(Offset(a.left, b.center.dy), Offset(b.left, b.center.dy), d,
+          Axis.horizontal);
     }
 
-    if (boxInsideCompared) {
-      // B contains A: from B.left to A.left at A.center.dy
-      final distance = boxRect.left - comparedRect.left;
-      if (distance <= 0) return const SizedBox.shrink();
-      return CustomPaint(
-        painter: _DistanceLinePainter(
-          start: Offset(comparedRect.left, boxRect.center.dy),
-          end: Offset(boxRect.left, boxRect.center.dy),
-          distance: distance,
-          color: color,
-          direction: Axis.horizontal,
-        ),
-      );
+    // UC4 – B contains A
+    if (bContainsA) {
+      final d = a.left - b.left;
+      if (d <= 0) return const SizedBox.shrink();
+      return _solid(Offset(b.left, a.center.dy), Offset(a.left, a.center.dy), d,
+          Axis.horizontal);
     }
 
-    // --- External case ---
-    // Determine weather B is fully to the left, or extends past A's left edge.
-    final solidY = boxRect.center.dy;
-    double distance;
-    Offset solidStart;
-    Offset bEndpoint; // the B-side endpoint of the solid line
+    final solidY = a.center.dy;
+    late final double d;
+    late final Offset solidStart, solidEnd;
+    bool isOverhang = false;
 
-    if (comparedRect.right <= boxRect.left) {
-      // B is fully to the left of A (gap exists)
-      distance = boxRect.left - comparedRect.right;
-      solidStart = Offset(boxRect.left, solidY);
-      bEndpoint = Offset(comparedRect.right, solidY);
-    } else if (comparedRect.left < boxRect.left) {
-      // B extends past A's left edge (overhang)
-      distance = boxRect.left - comparedRect.left;
-      solidStart = Offset(boxRect.left, solidY);
-      bEndpoint = Offset(comparedRect.left, solidY);
+    if (b.right <= a.left) {
+      // B fully to the left (UC2, UC6)
+      d = a.left - b.right;
+      solidStart = Offset(a.left, solidY);
+      solidEnd = Offset(b.right, solidY);
+    } else if (b.left < a.left) {
+      // B overhangs A's left (UC1)
+      isOverhang = true;
+      d = a.left - b.left;
+      solidStart = Offset(a.left, solidY);
+      solidEnd = Offset(b.left, solidY);
     } else {
       return const SizedBox.shrink();
     }
 
-    if (distance <= 0) return const SizedBox.shrink();
+    if (d <= 0) return const SizedBox.shrink();
 
-    // Optional perpendicular dashed line at x = bEndpoint.dx
-    final dashed = _perpendicularDashedForHorizontal(
-      bEndpointX: bEndpoint.dx,
-      solidY: solidY,
-      comparedRect: comparedRect,
-    );
+    final dashed =
+        _verticalDashed(atX: solidEnd.dx, solidY: solidY, a: a, b: b);
+    if (isOverhang && dashed == null) return const SizedBox.shrink();
 
-    return Stack(
-      children: [
-        CustomPaint(
-          painter: _DistanceLinePainter(
-            start: solidStart,
-            end: bEndpoint,
-            distance: distance,
-            color: color,
-            direction: Axis.horizontal,
-          ),
-        ),
-        if (dashed != null)
-          CustomPaint(
-            painter: _DistanceLinePainter(
-              start: dashed.start,
-              end: dashed.end,
-              distance: distance,
-              color: color,
-              direction: Axis.vertical,
-              isDashed: true,
-            ),
-          ),
-      ],
-    );
+    return _solidWithDashed(solidStart, solidEnd, d, Axis.horizontal, dashed);
   }
 
-  /// Builds a horizontal distance line on the RIGHT side.
-  Widget _buildRightDistance(
-    Rect boxRect,
-    Rect comparedRect,
-    bool comparedInsideBox,
-    bool boxInsideCompared,
-  ) {
-    // --- Inside cases ---
-    if (comparedInsideBox) {
-      // A contains B: from B.right to A.right at B.center.dy
-      final distance = boxRect.right - comparedRect.right;
-      if (distance <= 0) return const SizedBox.shrink();
-      return CustomPaint(
-        painter: _DistanceLinePainter(
-          start: Offset(comparedRect.right, comparedRect.center.dy),
-          end: Offset(boxRect.right, comparedRect.center.dy),
-          distance: distance,
-          color: color,
-          direction: Axis.horizontal,
-        ),
-      );
+  Widget _buildRight(Rect a, Rect b, bool aContainsB, bool bContainsA) {
+    // UC4 – A contains B
+    if (aContainsB) {
+      final d = a.right - b.right;
+      if (d <= 0) return const SizedBox.shrink();
+      return _solid(Offset(b.right, b.center.dy), Offset(a.right, b.center.dy),
+          d, Axis.horizontal);
     }
 
-    if (boxInsideCompared) {
-      // B contains A: from A.right to B.right at A.center.dy
-      final distance = comparedRect.right - boxRect.right;
-      if (distance <= 0) return const SizedBox.shrink();
-      return CustomPaint(
-        painter: _DistanceLinePainter(
-          start: Offset(boxRect.right, boxRect.center.dy),
-          end: Offset(comparedRect.right, boxRect.center.dy),
-          distance: distance,
-          color: color,
-          direction: Axis.horizontal,
-        ),
-      );
+    // UC4 – B contains A
+    if (bContainsA) {
+      final d = b.right - a.right;
+      if (d <= 0) return const SizedBox.shrink();
+      return _solid(Offset(a.right, a.center.dy), Offset(b.right, a.center.dy),
+          d, Axis.horizontal);
     }
 
-    // --- External case ---
-    final solidY = boxRect.center.dy;
-    double distance;
-    Offset solidStart;
-    Offset bEndpoint;
+    final solidY = a.center.dy;
+    late final double d;
+    late final Offset solidStart, solidEnd;
+    bool isOverhang = false;
 
-    if (comparedRect.left >= boxRect.right) {
-      // B is fully to the right of A (gap exists)
-      distance = comparedRect.left - boxRect.right;
-      solidStart = Offset(boxRect.right, solidY);
-      bEndpoint = Offset(comparedRect.left, solidY);
-    } else if (comparedRect.right > boxRect.right) {
-      // B extends past A's right edge (overhang)
-      distance = comparedRect.right - boxRect.right;
-      solidStart = Offset(boxRect.right, solidY);
-      bEndpoint = Offset(comparedRect.right, solidY);
+    if (b.left >= a.right) {
+      // B fully to the right
+      d = b.left - a.right;
+      solidStart = Offset(a.right, solidY);
+      solidEnd = Offset(b.left, solidY);
+    } else if (b.right > a.right) {
+      // B overhangs A's right (UC1)
+      isOverhang = true;
+      d = b.right - a.right;
+      solidStart = Offset(a.right, solidY);
+      solidEnd = Offset(b.right, solidY);
     } else {
       return const SizedBox.shrink();
     }
 
-    if (distance <= 0) return const SizedBox.shrink();
+    if (d <= 0) return const SizedBox.shrink();
 
-    final dashed = _perpendicularDashedForHorizontal(
-      bEndpointX: bEndpoint.dx,
-      solidY: solidY,
-      comparedRect: comparedRect,
-    );
+    final dashed =
+        _verticalDashed(atX: solidEnd.dx, solidY: solidY, a: a, b: b);
+    if (isOverhang && dashed == null) return const SizedBox.shrink();
 
-    return Stack(
-      children: [
-        CustomPaint(
-          painter: _DistanceLinePainter(
-            start: solidStart,
-            end: bEndpoint,
-            distance: distance,
-            color: color,
-            direction: Axis.horizontal,
-          ),
-        ),
-        if (dashed != null)
-          CustomPaint(
-            painter: _DistanceLinePainter(
-              start: dashed.start,
-              end: dashed.end,
-              distance: distance,
-              color: color,
-              direction: Axis.vertical,
-              isDashed: true,
-            ),
-          ),
-      ],
-    );
+    return _solidWithDashed(solidStart, solidEnd, d, Axis.horizontal, dashed);
   }
 
-  /// Builds a horizontal distance line on the RIGHT side.
-  /// A perpendicular dashed line is added when A's horizontal centre is outside
-  /// B's horizontal bounds.
-  Widget _buildTopDistance(
-    Rect boxRect,
-    Rect comparedRect,
-    bool comparedInsideBox,
-    bool boxInsideCompared,
-  ) {
-    // --- Inside cases ---
-    if (comparedInsideBox) {
-      // A contains B: from A.top to B.top at B.center.dx
-      final distance = comparedRect.top - boxRect.top;
-      if (distance <= 0) return const SizedBox.shrink();
-      return CustomPaint(
-        painter: _DistanceLinePainter(
-          start: Offset(comparedRect.center.dx, boxRect.top),
-          end: Offset(comparedRect.center.dx, comparedRect.top),
-          distance: distance,
-          color: color,
-          direction: Axis.vertical,
-        ),
-      );
+  Widget _buildTop(Rect a, Rect b, bool aContainsB, bool bContainsA) {
+    // UC4 – A contains B
+    if (aContainsB) {
+      final d = b.top - a.top;
+      if (d <= 0) return const SizedBox.shrink();
+      return _solid(Offset(b.center.dx, a.top), Offset(b.center.dx, b.top), d,
+          Axis.vertical);
     }
 
-    if (boxInsideCompared) {
-      // B contains A: from B.top to A.top at A.center.dx
-      final distance = boxRect.top - comparedRect.top;
-      if (distance <= 0) return const SizedBox.shrink();
-      return CustomPaint(
-        painter: _DistanceLinePainter(
-          start: Offset(boxRect.center.dx, comparedRect.top),
-          end: Offset(boxRect.center.dx, boxRect.top),
-          distance: distance,
-          color: color,
-          direction: Axis.vertical,
-        ),
-      );
+    // UC4 – B contains A
+    if (bContainsA) {
+      final d = a.top - b.top;
+      if (d <= 0) return const SizedBox.shrink();
+      return _solid(Offset(a.center.dx, b.top), Offset(a.center.dx, a.top), d,
+          Axis.vertical);
     }
 
-    // --- External case ---
-    final solidX = boxRect.center.dx;
-    double distance;
-    Offset solidStart;
-    Offset bEndpoint;
+    final solidX = a.center.dx;
+    late final double d;
+    late final Offset solidStart, solidEnd;
+    bool isOverhang = false;
 
-    if (comparedRect.bottom <= boxRect.top) {
-      // B is fully above A (gap exists)
-      distance = boxRect.top - comparedRect.bottom;
-      solidStart = Offset(solidX, boxRect.top);
-      bEndpoint = Offset(solidX, comparedRect.bottom);
-    } else if (comparedRect.top < boxRect.top) {
-      // B extends past A's top edge (overhang)
-      distance = boxRect.top - comparedRect.top;
-      solidStart = Offset(solidX, boxRect.top);
-      bEndpoint = Offset(solidX, comparedRect.top);
+    if (b.bottom <= a.top) {
+      // B fully above A
+      d = a.top - b.bottom;
+      solidStart = Offset(solidX, a.top);
+      solidEnd = Offset(solidX, b.bottom);
+    } else if (b.top < a.top) {
+      // B overhangs A's top
+      isOverhang = true;
+      d = a.top - b.top;
+      solidStart = Offset(solidX, a.top);
+      solidEnd = Offset(solidX, b.top);
     } else {
       return const SizedBox.shrink();
     }
 
-    if (distance <= 0) return const SizedBox.shrink();
+    if (d <= 0) return const SizedBox.shrink();
 
-    final dashed = _perpendicularDashedForVertical(
-      solidX: solidX,
-      bEndpointY: bEndpoint.dy,
-      comparedRect: comparedRect,
-    );
+    final dashed =
+        _horizontalDashed(atY: solidEnd.dy, solidX: solidX, a: a, b: b);
+    if (isOverhang && dashed == null) return const SizedBox.shrink();
 
-    return Stack(
-      children: [
-        CustomPaint(
-          painter: _DistanceLinePainter(
-            start: solidStart,
-            end: bEndpoint,
-            distance: distance,
-            color: color,
-            direction: Axis.vertical,
-          ),
-        ),
-        if (dashed != null)
-          CustomPaint(
-            painter: _DistanceLinePainter(
-              start: dashed.start,
-              end: dashed.end,
-              distance: distance,
-              color: color,
-              direction: Axis.horizontal,
-              isDashed: true,
-            ),
-          ),
-      ],
-    );
+    return _solidWithDashed(solidStart, solidEnd, d, Axis.vertical, dashed);
   }
 
-  /// Builds a vertical distance line on the BOTTOM side.
-  Widget _buildBottomDistance(
-    Rect boxRect,
-    Rect comparedRect,
-    bool comparedInsideBox,
-    bool boxInsideCompared,
-  ) {
-    // --- Inside cases ---
-    if (comparedInsideBox) {
-      // A contains B: from B.bottom to A.bottom at B.center.dx
-      final distance = boxRect.bottom - comparedRect.bottom;
-      if (distance <= 0) return const SizedBox.shrink();
-      return CustomPaint(
-        painter: _DistanceLinePainter(
-          start: Offset(comparedRect.center.dx, comparedRect.bottom),
-          end: Offset(comparedRect.center.dx, boxRect.bottom),
-          distance: distance,
-          color: color,
-          direction: Axis.vertical,
-        ),
-      );
+  Widget _buildBottom(Rect a, Rect b, bool aContainsB, bool bContainsA) {
+    // UC4 – A contains B
+    if (aContainsB) {
+      final d = a.bottom - b.bottom;
+      if (d <= 0) return const SizedBox.shrink();
+      return _solid(Offset(b.center.dx, b.bottom),
+          Offset(b.center.dx, a.bottom), d, Axis.vertical);
     }
 
-    if (boxInsideCompared) {
-      // B contains A: from A.bottom to B.bottom at A.center.dx
-      final distance = comparedRect.bottom - boxRect.bottom;
-      if (distance <= 0) return const SizedBox.shrink();
-      return CustomPaint(
-        painter: _DistanceLinePainter(
-          start: Offset(boxRect.center.dx, boxRect.bottom),
-          end: Offset(boxRect.center.dx, comparedRect.bottom),
-          distance: distance,
-          color: color,
-          direction: Axis.vertical,
-        ),
-      );
+    // UC4 – B contains A
+    if (bContainsA) {
+      final d = b.bottom - a.bottom;
+      if (d <= 0) return const SizedBox.shrink();
+      return _solid(Offset(a.center.dx, a.bottom),
+          Offset(a.center.dx, b.bottom), d, Axis.vertical);
     }
 
-    // --- External case ---
-    final solidX = boxRect.center.dx;
-    double distance;
-    Offset solidStart;
-    Offset bEndpoint;
+    final solidX = a.center.dx;
+    late final double d;
+    late final Offset solidStart, solidEnd;
+    bool isOverhang = false;
 
-    if (comparedRect.top >= boxRect.bottom) {
-      // B is fully below A (gap exists)
-      distance = comparedRect.top - boxRect.bottom;
-      solidStart = Offset(solidX, boxRect.bottom);
-      bEndpoint = Offset(solidX, comparedRect.top);
-    } else if (comparedRect.bottom > boxRect.bottom) {
-      // B extends past A's bottom edge (overhang)
-      distance = comparedRect.bottom - boxRect.bottom;
-      solidStart = Offset(solidX, boxRect.bottom);
-      bEndpoint = Offset(solidX, comparedRect.bottom);
+    if (b.top >= a.bottom) {
+      // B fully below A (UC1, UC2, UC3, UC6)
+      d = b.top - a.bottom;
+      solidStart = Offset(solidX, a.bottom);
+      solidEnd = Offset(solidX, b.top);
+    } else if (b.bottom > a.bottom) {
+      // B overhangs A's bottom
+      isOverhang = true;
+      d = b.bottom - a.bottom;
+      solidStart = Offset(solidX, a.bottom);
+      solidEnd = Offset(solidX, b.bottom);
     } else {
       return const SizedBox.shrink();
     }
 
-    if (distance <= 0) return const SizedBox.shrink();
+    if (d <= 0) return const SizedBox.shrink();
 
-    final dashed = _perpendicularDashedForVertical(
-      solidX: solidX,
-      bEndpointY: bEndpoint.dy,
-      comparedRect: comparedRect,
-    );
+    final dashed =
+        _horizontalDashed(atY: solidEnd.dy, solidX: solidX, a: a, b: b);
+    if (isOverhang && dashed == null) return const SizedBox.shrink();
 
-    return Stack(
-      children: [
-        CustomPaint(
-          painter: _DistanceLinePainter(
-            start: solidStart,
-            end: bEndpoint,
-            distance: distance,
-            color: color,
-            direction: Axis.vertical,
-          ),
-        ),
-        if (dashed != null)
-          CustomPaint(
-            painter: _DistanceLinePainter(
-              start: dashed.start,
-              end: dashed.end,
-              distance: distance,
-              color: color,
-              direction: Axis.horizontal,
-              isDashed: true,
-            ),
-          ),
-      ],
-    );
+    return _solidWithDashed(solidStart, solidEnd, d, Axis.vertical, dashed);
   }
 
   // ---------------------------------------------------------------------------
-  // Helpers: perpendicular dashed lines
+  // Perpendicular dashed helpers
   // ---------------------------------------------------------------------------
 
-  /// Returns the start/end of a perpendicular **vertical** dashed line for a
-  /// horizontal solid line, or `null` if the solid endpoint already lies on B's
-  /// edge (no dashed needed).
-  ///
-  /// The dashed line goes from B's nearest horizontal edge up/down to the
-  /// solid line's floating endpoint at ([bEndpointX], [solidY]).
-  _DashedSegment? _perpendicularDashedForHorizontal({
-    required double bEndpointX,
+  /// Vertical dashed for a horizontal solid at [atX], from B's edge to [solidY].
+  /// Only produced when there is a true vertical gap between A and B (not just touching).
+  _Segment? _verticalDashed({
+    required double atX,
     required double solidY,
-    required Rect comparedRect,
+    required Rect a,
+    required Rect b,
   }) {
-    if (solidY < comparedRect.top) {
-      // A is above B: dashed from B.top down to solidY
-      return _DashedSegment(
-        Offset(bEndpointX, comparedRect.top),
-        Offset(bEndpointX, solidY),
-      );
-    } else if (solidY > comparedRect.bottom) {
-      // A is below B: dashed from B.bottom up to solidY
-      return _DashedSegment(
-        Offset(bEndpointX, comparedRect.bottom),
-        Offset(bEndpointX, solidY),
-      );
+    if (solidY < b.top && b.top > a.bottom) {
+      return _Segment(Offset(atX, b.top), Offset(atX, solidY));
     }
-    // solidY is within B's vertical range → endpoint is on B's edge, no dashed
+    if (solidY > b.bottom && b.bottom < a.top) {
+      return _Segment(Offset(atX, b.bottom), Offset(atX, solidY));
+    }
     return null;
   }
 
-  /// Returns the start/end of a perpendicular **horizontal** dashed line for
-  /// a vertical solid line, or `null` if no dashed is needed.
-  ///
-  /// The dashed line goes from B's nearest vertical edge left/right to the
-  /// solid line's floating endpoint at ([solidX], [bEndpointY]).
-  _DashedSegment? _perpendicularDashedForVertical({
+  /// Horizontal dashed for a vertical solid at [atY], from B's edge to [solidX].
+  /// Only produced when there is a true horizontal gap between A and B (not just touching).
+  _Segment? _horizontalDashed({
+    required double atY,
     required double solidX,
-    required double bEndpointY,
-    required Rect comparedRect,
+    required Rect a,
+    required Rect b,
   }) {
-    if (solidX < comparedRect.left) {
-      // A is to the left of B: dashed from B.left to solidX
-      return _DashedSegment(
-        Offset(comparedRect.left, bEndpointY),
-        Offset(solidX, bEndpointY),
-      );
-    } else if (solidX > comparedRect.right) {
-      // A is to the right of B: dashed from B.right to solidX
-      return _DashedSegment(
-        Offset(comparedRect.right, bEndpointY),
-        Offset(solidX, bEndpointY),
-      );
+    if (solidX < b.left && b.left > a.right) {
+      return _Segment(Offset(b.left, atY), Offset(solidX, atY));
     }
-    // solidX is within B's horizontal range → endpoint is on B's edge, no dashed
+    if (solidX > b.right && b.right < a.left) {
+      return _Segment(Offset(b.right, atY), Offset(solidX, atY));
+    }
     return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Widget factories
+  // ---------------------------------------------------------------------------
+
+  Widget _solid(Offset start, Offset end, double distance, Axis direction) {
+    return CustomPaint(
+      painter: _LinePainter(
+        start: start,
+        end: end,
+        distance: distance,
+        color: color,
+        direction: direction,
+      ),
+    );
+  }
+
+  Widget _solidWithDashed(
+    Offset solidStart,
+    Offset solidEnd,
+    double distance,
+    Axis solidDirection,
+    _Segment? dashed,
+  ) {
+    if (dashed == null) {
+      return _solid(solidStart, solidEnd, distance, solidDirection);
+    }
+    return Stack(
+      children: [
+        _solid(solidStart, solidEnd, distance, solidDirection),
+        CustomPaint(
+          painter: _LinePainter(
+            start: dashed.start,
+            end: dashed.end,
+            distance: distance,
+            color: color,
+            direction: solidDirection == Axis.horizontal
+                ? Axis.vertical
+                : Axis.horizontal,
+            isDashed: true,
+          ),
+        ),
+      ],
+    );
   }
 }
 
-/// Simple pair of [Offset]s describing the start and end of a dashed segment.
-class _DashedSegment {
-  const _DashedSegment(this.start, this.end);
+// -----------------------------------------------------------------------------
+
+class _Segment {
+  const _Segment(this.start, this.end);
 
   final Offset start;
   final Offset end;
 }
 
-class _DistanceLinePainter extends CustomPainter {
-  _DistanceLinePainter({
+class _LinePainter extends CustomPainter {
+  const _LinePainter({
     required this.start,
     required this.end,
     required this.distance,
@@ -522,9 +341,10 @@ class _DistanceLinePainter extends CustomPainter {
   final Axis direction;
   final bool isDashed;
 
-  static const double labelPadding = 4.0;
   static const double _dashLength = 5.0;
   static const double _dashGap = 4.0;
+  static const double _labelPadding = 4.0;
+  static const double _labelOffset = 6.0;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -534,37 +354,34 @@ class _DistanceLinePainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
 
     if (isDashed) {
-      _drawDashedLine(canvas, paint);
+      _drawDashed(canvas, paint);
     } else {
       canvas.drawLine(start, end, paint);
       _drawLabel(canvas);
     }
   }
 
-  void _drawDashedLine(Canvas canvas, Paint paint) {
+  void _drawDashed(Canvas canvas, Paint paint) {
     final dx = end.dx - start.dx;
     final dy = end.dy - start.dy;
-    final lineLength = sqrt(dx * dx + dy * dy);
-    if (lineLength == 0) return;
+    final length = sqrt(dx * dx + dy * dy);
+    if (length == 0) return;
 
-    final unitDx = dx / lineLength;
-    final unitDy = dy / lineLength;
-
+    final ux = dx / length;
+    final uy = dy / length;
     double traveled = 0;
     bool drawing = true;
 
-    while (traveled < lineLength) {
-      final segmentLength = drawing ? _dashLength : _dashGap;
-      final next = (traveled + segmentLength).clamp(0.0, lineLength);
-
+    while (traveled < length) {
+      final next =
+          (traveled + (drawing ? _dashLength : _dashGap)).clamp(0.0, length);
       if (drawing) {
         canvas.drawLine(
-          Offset(start.dx + unitDx * traveled, start.dy + unitDy * traveled),
-          Offset(start.dx + unitDx * next, start.dy + unitDy * next),
+          Offset(start.dx + ux * traveled, start.dy + uy * traveled),
+          Offset(start.dx + ux * next, start.dy + uy * next),
           paint,
         );
       }
-
       traveled = next;
       drawing = !drawing;
     }
@@ -581,62 +398,35 @@ class _DistanceLinePainter extends CustomPainter {
         ),
       ),
       textDirection: TextDirection.ltr,
-    );
+    )..layout();
 
-    textPainter.layout();
+    final lw = textPainter.width + _labelPadding * 2;
+    final lh = textPainter.height + _labelPadding * 2;
+    final center = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
 
-    final labelWidth = textPainter.width + labelPadding * 2;
-    final labelHeight = textPainter.height + labelPadding * 2;
-    const double labelOffset = 6.0;
+    final labelCenter = direction == Axis.horizontal
+        ? Offset(center.dx, center.dy - lh / 2 - _labelOffset)
+        : Offset(center.dx + lw / 2 + _labelOffset, center.dy);
 
-    final Offset lineCenter = Offset(
-      (start.dx + end.dx) / 2,
-      (start.dy + end.dy) / 2,
-    );
-
-    final Offset labelCenter;
-    if (direction == Axis.horizontal) {
-      labelCenter = Offset(
-        lineCenter.dx,
-        lineCenter.dy - labelHeight / 2 - labelOffset,
-      );
-    } else {
-      labelCenter = Offset(
-        lineCenter.dx + labelWidth / 2 + labelOffset,
-        lineCenter.dy,
-      );
-    }
-
-    final Rect labelRect = Rect.fromCenter(
-      center: labelCenter,
-      width: labelWidth,
-      height: labelHeight,
-    );
-
-    final labelPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
+    final rect = Rect.fromCenter(center: labelCenter, width: lw, height: lh);
 
     canvas.drawRRect(
-      RRect.fromRectAndRadius(labelRect, const Radius.circular(3)),
-      labelPaint,
+      RRect.fromRectAndRadius(rect, const Radius.circular(3)),
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.fill,
     );
 
     textPainter.paint(
-      canvas,
-      Offset(
-        labelRect.left + labelPadding,
-        labelRect.top + labelPadding,
-      ),
-    );
+        canvas, Offset(rect.left + _labelPadding, rect.top + _labelPadding));
   }
 
   @override
-  bool shouldRepaint(covariant _DistanceLinePainter oldDelegate) =>
-      start != oldDelegate.start ||
-      end != oldDelegate.end ||
-      distance != oldDelegate.distance ||
-      color != oldDelegate.color ||
-      direction != oldDelegate.direction ||
-      isDashed != oldDelegate.isDashed;
+  bool shouldRepaint(covariant _LinePainter old) =>
+      start != old.start ||
+      end != old.end ||
+      distance != old.distance ||
+      color != old.color ||
+      direction != old.direction ||
+      isDashed != old.isDashed;
 }
