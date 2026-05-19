@@ -236,36 +236,28 @@ class DistanceIndicatorWidget extends StatelessWidget {
   // ---------------------------------------------------------------------------
 
   /// Vertical dashed for a horizontal solid at [atX], from B's edge to [solidY].
-  /// Only produced when there is a true vertical gap between A and B (not just touching).
+  /// Produced whenever the solid endpoint lies outside B's vertical bounds.
   _Segment? _verticalDashed({
     required double atX,
     required double solidY,
     required Rect a,
     required Rect b,
   }) {
-    if (solidY < b.top && b.top > a.bottom) {
-      return _Segment(Offset(atX, b.top), Offset(atX, solidY));
-    }
-    if (solidY > b.bottom && b.bottom < a.top) {
-      return _Segment(Offset(atX, b.bottom), Offset(atX, solidY));
-    }
+    if (solidY < b.top) return _Segment(Offset(atX, b.top), Offset(atX, solidY));
+    if (solidY > b.bottom) return _Segment(Offset(atX, b.bottom), Offset(atX, solidY));
     return null;
   }
 
   /// Horizontal dashed for a vertical solid at [atY], from B's edge to [solidX].
-  /// Only produced when there is a true horizontal gap between A and B (not just touching).
+  /// Produced whenever the solid endpoint lies outside B's horizontal bounds.
   _Segment? _horizontalDashed({
     required double atY,
     required double solidX,
     required Rect a,
     required Rect b,
   }) {
-    if (solidX < b.left && b.left > a.right) {
-      return _Segment(Offset(b.left, atY), Offset(solidX, atY));
-    }
-    if (solidX > b.right && b.right < a.left) {
-      return _Segment(Offset(b.right, atY), Offset(solidX, atY));
-    }
+    if (solidX < b.left) return _Segment(Offset(b.left, atY), Offset(solidX, atY));
+    if (solidX > b.right) return _Segment(Offset(b.right, atY), Offset(solidX, atY));
     return null;
   }
 
