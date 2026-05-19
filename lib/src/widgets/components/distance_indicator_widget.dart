@@ -16,10 +16,19 @@ class DistanceIndicatorWidget extends StatelessWidget {
   final BoxInfo comparedBoxInfo;
   final Color color;
 
+  // Snap coordinates to the nearest logical pixel to eliminate floating-point noise
+  // from globalToLocal transforms (e.g. 200.0001 vs 200.0 on a touching edge).
+  static Rect _snap(Rect r) => Rect.fromLTRB(
+        r.left.roundToDouble(),
+        r.top.roundToDouble(),
+        r.right.roundToDouble(),
+        r.bottom.roundToDouble(),
+      );
+
   @override
   Widget build(BuildContext context) {
-    final a = boxInfo.targetRectShifted;
-    final b = comparedBoxInfo.targetRectShifted;
+    final a = _snap(boxInfo.targetRectShifted);
+    final b = _snap(comparedBoxInfo.targetRectShifted);
 
     final aContainsB = a.left <= b.left &&
         a.top <= b.top &&
@@ -243,8 +252,12 @@ class DistanceIndicatorWidget extends StatelessWidget {
     required Rect a,
     required Rect b,
   }) {
-    if (solidY < b.top) return _Segment(Offset(atX, b.top), Offset(atX, solidY));
-    if (solidY > b.bottom) return _Segment(Offset(atX, b.bottom), Offset(atX, solidY));
+    if (solidY < b.top) {
+      return _Segment(Offset(atX, b.top), Offset(atX, solidY));
+    }
+    if (solidY > b.bottom) {
+      return _Segment(Offset(atX, b.bottom), Offset(atX, solidY));
+    }
     return null;
   }
 
@@ -256,8 +269,12 @@ class DistanceIndicatorWidget extends StatelessWidget {
     required Rect a,
     required Rect b,
   }) {
-    if (solidX < b.left) return _Segment(Offset(b.left, atY), Offset(solidX, atY));
-    if (solidX > b.right) return _Segment(Offset(b.right, atY), Offset(solidX, atY));
+    if (solidX < b.left) {
+      return _Segment(Offset(b.left, atY), Offset(solidX, atY));
+    }
+    if (solidX > b.right) {
+      return _Segment(Offset(b.right, atY), Offset(solidX, atY));
+    }
     return null;
   }
 
